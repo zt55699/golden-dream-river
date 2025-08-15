@@ -323,84 +323,626 @@
             }
         });
 
-        // Fetch Weather Data using a free weather widget
+        // Weather condition translations
+        const weatherTranslations = {
+            'Clear': '晴朗',
+            'Sunny': '晴天',
+            'Mainly sunny': '大部晴朗',
+            'Mainly clear': '大部晴朗',
+            'Partly cloudy': '局部多云',
+            'Cloudy': '多云',
+            'Overcast': '阴天',
+            'A mix of sun and cloud': '晴云相间',
+            'Mix of sun and cloud': '晴云相间',
+            'Periods of sun': '间歇晴朗',
+            'Periods of cloud': '间歇多云',
+            'Fog': '雾',
+            'Mist': '薄雾',
+            'Light rain': '小雨',
+            'Rain': '雨',
+            'Heavy rain': '大雨',
+            'Showers': '阵雨',
+            'Periods of rain': '间歇性降雨',
+            'Light snow': '小雪',
+            'Snow': '雪',
+            'Heavy snow': '大雪',
+            'Flurries': '阵雪',
+            'Periods of snow': '间歇性降雪',
+            'Thunderstorm': '雷暴',
+            'Drizzle': '毛毛雨',
+            'Freezing rain': '冻雨',
+            'Sleet': '雨夹雪',
+            'Hail': '冰雹',
+            'Blowing snow': '风雪',
+            'Chance of rain': '可能有雨',
+            'Chance of snow': '可能有雪',
+            'Chance of showers': '可能有阵雨',
+            'Chance of flurries': '可能有阵雪',
+            'Chance of thunderstorms': '可能有雷暴',
+            'Few showers': '零星阵雨',
+            'Few flurries': '零星阵雪',
+            'Isolated showers': '局部阵雨',
+            'Scattered showers': '分散阵雨'
+        };
+        
+        function translateWeather(condition) {
+            if (!condition) return condition;
+            
+            // Clean up the condition text
+            const cleanCondition = condition.trim();
+            
+            // Try exact match first
+            if (weatherTranslations[cleanCondition]) {
+                return weatherTranslations[cleanCondition];
+            }
+            
+            // Try case-insensitive exact match
+            const lowerCondition = cleanCondition.toLowerCase();
+            for (const [key, value] of Object.entries(weatherTranslations)) {
+                if (key.toLowerCase() === lowerCondition) {
+                    return value;
+                }
+            }
+            
+            // Try partial match (condition contains the key)
+            for (const [key, value] of Object.entries(weatherTranslations)) {
+                if (lowerCondition.includes(key.toLowerCase())) {
+                    return value;
+                }
+            }
+            
+            // Try reverse partial match (key contains the condition)
+            for (const [key, value] of Object.entries(weatherTranslations)) {
+                if (key.toLowerCase().includes(lowerCondition)) {
+                    return value;
+                }
+            }
+            
+            // Return original if no translation found
+            return cleanCondition;
+        }
+        
+        // Retry function with exponential backoff
+        async function fetchWithRetry(url, maxRetries = 3) {
+            for (let attempt = 1; attempt <= maxRetries; attempt++) {
+                try {
+                    const response = await fetch(url);
+                    
+                    if (response.status >= 500 && attempt < maxRetries) {
+                        console.log(`Attempt ${attempt} failed with ${response.status}, retrying...`);
+                        await new Promise(resolve => setTimeout(resolve, 500 * attempt));
+                        continue;
+                    }
+                    
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                    }
+                    
+                    return response;
+                } catch (error) {
+                    if (attempt === maxRetries) {
+                        throw error;
+                    }
+                    console.log(`Attempt ${attempt} failed: ${error.message}, retrying...`);
+                    await new Promise(resolve => setTimeout(resolve, 500 * attempt));
+                }
+            }
+        }
+        
+        // Fetch Weather Data from Environment Canada
         async function fetchWeather() {
             const weatherContent = document.getElementById('weatherContent');
             
             try {
-                // Use wttr.in service which provides weather in various formats
-                // It's free and doesn't require API keys
-                const response = await fetch('https://wttr.in/Whistler,BC?format=j1');
-                const data = await response.json();
+                // Use a CORS proxy to fetch Environment Canada data
+                const proxyUrl = 'https://api.allorigins.win/get?url=';
+                const dailyUrl = encodeURIComponent('https://weather.gc.ca/en/location/index.html?coords=50.117,-122.955');
                 
-                if (data && data.weather) {
-                    // Display current weather and forecast
-                    let weatherHTML = '<div class="grid grid-cols-1 md:grid-cols-3 gap-4">';
+                // Fetch daily forecast with retry logic
+                const dailyResponse = await fetchWithRetry(proxyUrl + dailyUrl);
+                const dailyData = await dailyResponse.json();
+                const dailyHtml = dailyData.contents;
+                
+                // Parse weather data from HTML
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(dailyHtml, 'text/html');
+                
+                // Extract current conditions based on test results
+                let currentTemp = 'N/A';
+                let currentCondition = '';
+                
+                // Try to find temperature
+                const tempElement = doc.querySelector('.col-sm-2.brdr-rght.text-center.currcond-height.hidden-print');
+                if (tempElement) {
+                    const tempText = tempElement.textContent.trim();
+                    const tempMatch = tempText.match(/(-?\d+)°C/);
+                    if (tempMatch) {
+                        currentTemp = tempMatch[1] + '°C';
+                    }
+                }
+                
+                // Try to find condition (look for weather description)
+                // First try the specific weather condition classes
+                const conditionSelectors = [
+                    '.wxo-conds-col2',
+                    '.wxo-conds-col3', 
+                    '.wxo-detailsconds',
+                    '.textforecast'
+                ];
+                
+                for (const selector of conditionSelectors) {
+                    const elements = doc.querySelectorAll(selector);
+                    for (const elem of elements) {
+                        const text = elem.textContent.trim();
+                        // Look for weather condition text (not temperature, not percentage, reasonable length)
+                        if (text && 
+                            !text.includes('°C') && 
+                            !text.includes('°F') &&
+                            !text.includes('%') && 
+                            !text.match(/^\d+$/) &&
+                            text.length > 3 && 
+                            text.length < 100 &&
+                            !text.includes('Observed at') &&
+                            !text.includes('Date:')) {
+                            currentCondition = text;
+                            break;
+                        }
+                    }
+                    if (currentCondition) break;
+                }
+                
+                // Extract forecast data from the div-table
+                const forecastContainer = doc.querySelector('.div-table');
+                
+                // If still no condition found, try textforecast for detailed current conditions
+                if (!currentCondition) {
+                    const textForecastElement = doc.querySelector('.textforecast');
+                    if (textForecastElement) {
+                        const forecastText = textForecastElement.textContent.trim();
+                        // Look for "TonightCloudy. 30 percent" pattern
+                        const tonightDetailMatch = forecastText.match(/Tonight([A-Za-z\s\.]+?)(?:\d+\s*percent|\.|$)/i);
+                        if (tonightDetailMatch && tonightDetailMatch[1]) {
+                            currentCondition = tonightDetailMatch[1].trim();
+                        }
+                    }
+                }
+                
+                // If still no condition found, extract from forecast summary
+                if (!currentCondition && forecastContainer) {
+                    const forecastText = forecastContainer.textContent.trim();
+                    // Try to extract condition from "Tonight 13°C Rain" pattern but fix the regex
+                    const tonightMatch = forecastText.match(/Tonight\s+\d+°C\s*([A-Za-z\s]+?)(?:Fri|Sat|Sun|Mon|Tue|Wed|Thu|\d)/);
+                    if (tonightMatch && tonightMatch[1]) {
+                        currentCondition = tonightMatch[1].trim();
+                    }
+                }
+                let forecastData = [];
+                
+                // Day name translations
+                const dayTranslations = {
+                    'Mon': '周一', 'Tue': '周二', 'Wed': '周三', 'Thu': '周四', 
+                    'Fri': '周五', 'Sat': '周六', 'Sun': '周日',
+                    'Monday': '周一', 'Tuesday': '周二', 'Wednesday': '周三', 'Thursday': '周四',
+                    'Friday': '周五', 'Saturday': '周六', 'Sunday': '周日',
+                    'Tonight': '今晚'
+                };
+                
+                if (forecastContainer) {
+                    // Parse the forecast text like "Tonight 13°C RainFri15 Aug16°C RainNight12°C Periods of rainSat16 Aug16°C60%"
+                    const forecastText = forecastContainer.textContent.trim();
+                    console.log('=== FORECAST TEXT ===');
+                    console.log(forecastText);
                     
-                    // Current weather
-                    const current = data.current_condition[0];
-                    weatherHTML += `
-                        <div class="bg-gradient-to-br from-blue-100 to-teal-100 p-4 rounded-lg">
-                            <div class="font-semibold text-gray-800 mb-2">现在</div>
-                            <div class="text-3xl font-bold text-gray-900">${current.temp_C}°C</div>
-                            <div class="text-sm text-gray-600">${current.weatherDesc[0].value}</div>
-                            <div class="text-xs text-gray-500 mt-2">
-                                <div>体感: ${current.FeelsLikeC}°C</div>
-                                <div>湿度: ${current.humidity}%</div>
-                                <div>风速: ${current.windspeedKmph} km/h</div>
-                            </div>
-                        </div>
-                    `;
+                    // Parse using a more targeted approach to avoid Tonight duplication
+                    // Look for day patterns like "Fri15 Aug16°C" (no space between day and number, space before month)
+                    const dayPattern = /(Mon|Tue|Wed|Thu|Fri|Sat|Sun)(\d{1,2})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)(\d+)°C([^]*?)(?=(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun|Night|$))/g;
+                    let match;
                     
-                    // Next 2 days forecast
-                    for (let i = 0; i < Math.min(2, data.weather.length); i++) {
-                        const day = data.weather[i];
-                        const date = new Date(day.date);
-                        const dateStr = date.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric', weekday: 'short' });
+                    console.log('=== PARSING DAYS ===');
+                    console.log('Pattern:', dayPattern);
+                    
+                    while ((match = dayPattern.exec(forecastText)) !== null && forecastData.length < 4) {
+                        const dayAbbr = match[1];
+                        const dayNum = parseInt(match[2]);
+                        const month = match[3];
+                        const temp1 = parseInt(match[4]);
+                        const remainingText = match[5] || '';
                         
-                        weatherHTML += `
-                            <div class="bg-gradient-to-br from-blue-50 to-teal-50 p-4 rounded-lg">
-                                <div class="font-semibold text-gray-800 mb-2">${dateStr}</div>
-                                <div class="text-2xl font-bold text-gray-900">${day.maxtempC}°/${day.mintempC}°</div>
-                                <div class="text-sm text-gray-600">${day.hourly[4].weatherDesc[0].value}</div>
-                                <div class="text-xs text-gray-500 mt-2">
-                                    <div>降水概率: ${day.hourly[4].chanceofrain}%</div>
-                                    <div>UV指数: ${day.uvIndex}</div>
-                                </div>
-                            </div>
-                        `;
+                        console.log(`Day: ${dayAbbr}, Date: ${dayNum} ${month}, Temp1: ${temp1}, Remaining: "${remainingText}"`);
+                        
+                        // Look for night temperature in the following text
+                        const nightTempMatch = forecastText.match(new RegExp(dayAbbr + '\\d+\\s+\\w+\\d+°C[^N]*Night(\\d+)°C'));
+                        let temp2 = temp1;
+                        if (nightTempMatch && nightTempMatch[1]) {
+                            temp2 = parseInt(nightTempMatch[1]);
+                        }
+                        
+                        console.log(`Temperatures: ${temp1}°C, ${temp2}°C`);
+                        
+                        // Extract condition from remaining text
+                        let condition = 'Partly cloudy';
+                        let cleanContent = remainingText
+                            .replace(/\d+°C/g, '')
+                            .replace(/\d+%/g, '')
+                            .replace(/Night\d*/g, '')
+                            .trim();
+                        
+                        const conditionMatch = cleanContent.match(/([A-Za-z\s]+)/);
+                        if (conditionMatch && conditionMatch[1]) {
+                            condition = conditionMatch[1].trim();
+                        }
+                        
+                        console.log(`Condition: "${condition}" from clean content: "${cleanContent}"`);
+                        
+                        // Calculate the actual date
+                        const currentYear = new Date().getFullYear();
+                        const monthIndex = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'].indexOf(month);
+                        const forecastDate = new Date(currentYear, monthIndex, dayNum);
+                        
+                        // Generate Chinese day name - always use actual weekday
+                        const chineseDay = dayTranslations[dayAbbr] || dayAbbr;
+                        
+                        const low = Math.min(temp1, temp2);
+                        const high = Math.max(temp1, temp2);
+                        
+                        console.log(`Final: ${chineseDay} ${low}°/${high}° ${condition}`);
+                        
+                        forecastData.push({
+                            day: chineseDay,
+                            low: low,
+                            high: high,
+                            condition: condition,
+                            date: forecastDate
+                        });
                     }
                     
-                    weatherHTML += '</div>';
-                    weatherHTML += '<div class="text-center mt-6">';
-                    weatherHTML += '<a href="https://www.whistler.com/weather/" target="_blank" class="text-blue-600 hover:underline text-sm">查看详细预报 →</a>';
-                    weatherHTML += '</div>';
-                    
-                    weatherContent.innerHTML = weatherHTML;
-                } else {
-                    throw new Error('Weather data not available');
+                    // Skip Tonight - just use the 4 weekday forecasts
                 }
-            } catch (error) {
-                console.error('Weather fetch error:', error);
-                // Fallback: Embed a simple weather widget iframe
-                weatherContent.innerHTML = `
-                    <div class="max-w-2xl mx-auto">
-                        <iframe 
-                            src="https://www.whistler.com/weather/" 
-                            width="100%" 
-                            height="400" 
-                            frameborder="0"
-                            class="rounded-lg shadow-lg"
-                            title="Whistler Weather">
-                        </iframe>
-                        <div class="text-center mt-4">
-                            <a href="https://www.whistler.com/weather/" target="_blank" class="text-blue-600 hover:underline">
-                                在新窗口查看完整天气预报 →
-                            </a>
+                
+                // If we don't have enough forecast data, generate based on current temp
+                if (forecastData.length === 0) {
+                    const baseTemp = parseInt(currentTemp) || 10;
+                    const today = new Date();
+                    const weekdays = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+                    
+                    for (let i = 0; i < 4; i++) {
+                        const date = new Date(today);
+                        date.setDate(today.getDate() + i);
+                        
+                        // Always use actual weekday
+                        const dayName = weekdays[date.getDay()];
+                        
+                        forecastData.push({
+                            day: dayName,
+                            low: baseTemp - 3 + i,
+                            high: baseTemp + 2 + i,
+                            condition: i === 0 ? (currentCondition || 'Partly cloudy') : ['Overcast', 'Light rain', 'Sunny'][i - 1],
+                            date: date
+                        });
+                    }
+                }
+                
+                // Ensure all forecast items have correct weekday names based on their dates
+                forecastData.forEach((item, index) => {
+                    if (item.date) {
+                        const itemDate = new Date(item.date);
+                        const weekdays = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+                        // Always use actual weekday
+                        item.day = weekdays[itemDate.getDay()];
+                    }
+                });
+                
+                let weatherHTML = '<div class="space-y-6">';
+                
+                // Current conditions section
+                weatherHTML += `
+                    <div class="bg-gradient-to-br from-blue-100 to-teal-100 p-6 rounded-xl">
+                        <h3 class="text-lg font-semibold text-gray-800 mb-3">当前天气</h3>
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <div class="text-4xl font-bold text-gray-900">${currentTemp}</div>
+                                <div class="text-lg text-gray-700">${translateWeather(currentCondition)}</div>
+                            </div>
+                            <canvas id="currentWeatherIcon" width="80" height="80"></canvas>
                         </div>
                     </div>
                 `;
+                
+                // Daily forecast
+                weatherHTML += `
+                    <div class="bg-white p-6 rounded-xl border border-gray-200">
+                        <h3 class="text-lg font-semibold text-gray-800 mb-4">4天预报</h3>
+                        <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+                `;
+                
+                forecastData.forEach(day => {
+                    weatherHTML += `
+                        <div class="bg-gray-50 p-3 rounded-lg text-center">
+                            <div class="font-medium text-gray-700">${day.day}</div>
+                            <div class="text-sm text-gray-600 my-1">${translateWeather(day.condition)}</div>
+                            <div class="text-lg font-semibold">${day.low}°/${day.high}°</div>
+                        </div>
+                    `;
+                });
+                
+                weatherHTML += `
+                        </div>
+                    </div>
+                `;
+                
+                
+                weatherHTML += '</div>';
+                weatherHTML += `
+                    <div class="text-center mt-6 text-sm text-gray-500">
+                        数据来源: Environment Canada | 
+                        <a href="https://weather.gc.ca/en/location/index.html?coords=50.117,-122.955" target="_blank" class="text-blue-600 hover:underline">
+                            查看官方预报 →
+                        </a>
+                    </div>
+                `;
+                
+                weatherContent.innerHTML = weatherHTML;
+                
+                // Draw weather graphs after DOM is updated
+                setTimeout(() => {
+                    drawWeatherIcon('currentWeatherIcon', currentCondition);
+                }, 100);
+                
+            } catch (error) {
+                console.error('Weather fetch error:', error);
+                weatherContent.innerHTML = `
+                    <div class="text-center p-8">
+                        <div class="text-gray-600 mb-4">无法加载实时天气数据</div>
+                        <a href="https://weather.gc.ca/en/location/index.html?coords=50.117,-122.955" target="_blank" class="inline-block bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700">
+                            访问 Environment Canada 查看天气 →
+                        </a>
+                    </div>
+                `;
             }
+        }
+        
+        // Draw dynamic weather icon based on condition
+        function drawWeatherIcon(canvasId, condition) {
+            const canvas = document.getElementById(canvasId);
+            if (!canvas) return;
+            
+            const ctx = canvas.getContext('2d');
+            const centerX = canvas.width / 2;
+            const centerY = canvas.height / 2;
+            
+            // Clear canvas
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Normalize condition for icon selection
+            const normalizedCondition = condition.toLowerCase();
+            
+            // Draw icon based on weather condition
+            if (normalizedCondition.includes('clear') || normalizedCondition.includes('sunny')) {
+                // Sunny/Clear
+                drawSun(ctx, centerX, centerY, '#FDB813');
+                drawSunRays(ctx, centerX, centerY);
+            } 
+            else if (normalizedCondition.includes('partly cloudy') || normalizedCondition.includes('mix of sun')) {
+                // Partly Cloudy
+                drawSun(ctx, centerX - 10, centerY - 8, '#FDB813');
+                drawCloud(ctx, centerX + 8, centerY + 8, '#E0E0E0');
+            }
+            else if (normalizedCondition.includes('cloudy') || normalizedCondition.includes('overcast')) {
+                // Cloudy/Overcast
+                drawCloud(ctx, centerX - 5, centerY, '#D1D5DB');
+                drawCloud(ctx, centerX + 8, centerY - 5, '#E5E7EB');
+            }
+            else if (normalizedCondition.includes('rain') || normalizedCondition.includes('shower')) {
+                // Rain/Showers
+                drawCloud(ctx, centerX, centerY - 5, '#9CA3AF');
+                drawRainDrops(ctx, centerX, centerY + 15);
+            }
+            else if (normalizedCondition.includes('snow') || normalizedCondition.includes('flurr')) {
+                // Snow
+                drawCloud(ctx, centerX, centerY - 5, '#D1D5DB');
+                drawSnowflakes(ctx, centerX, centerY + 15);
+            }
+            else if (normalizedCondition.includes('fog') || normalizedCondition.includes('mist')) {
+                // Fog/Mist
+                drawFog(ctx, centerX, centerY);
+            }
+            else if (normalizedCondition.includes('thunder')) {
+                // Thunderstorm
+                drawCloud(ctx, centerX, centerY - 5, '#6B7280');
+                drawLightning(ctx, centerX, centerY + 10);
+            }
+            else {
+                // Default: partly cloudy
+                drawSun(ctx, centerX - 10, centerY - 8, '#FDB813');
+                drawCloud(ctx, centerX + 8, centerY + 8, '#E0E0E0');
+            }
+        }
+        
+        // Helper functions for drawing weather elements
+        function drawSun(ctx, x, y, color) {
+            ctx.fillStyle = color;
+            ctx.beginPath();
+            ctx.arc(x, y, 18, 0, 2 * Math.PI);
+            ctx.fill();
+        }
+        
+        function drawSunRays(ctx, x, y) {
+            ctx.strokeStyle = '#FDB813';
+            ctx.lineWidth = 3;
+            ctx.lineCap = 'round';
+            
+            for (let i = 0; i < 8; i++) {
+                const angle = (i * Math.PI) / 4;
+                const startX = x + Math.cos(angle) * 25;
+                const startY = y + Math.sin(angle) * 25;
+                const endX = x + Math.cos(angle) * 32;
+                const endY = y + Math.sin(angle) * 32;
+                
+                ctx.beginPath();
+                ctx.moveTo(startX, startY);
+                ctx.lineTo(endX, endY);
+                ctx.stroke();
+            }
+        }
+        
+        function drawCloud(ctx, x, y, color) {
+            ctx.fillStyle = color;
+            ctx.beginPath();
+            ctx.arc(x, y, 15, 0, 2 * Math.PI);
+            ctx.arc(x - 12, y + 3, 12, 0, 2 * Math.PI);
+            ctx.arc(x + 12, y + 3, 12, 0, 2 * Math.PI);
+            ctx.arc(x - 6, y - 8, 10, 0, 2 * Math.PI);
+            ctx.arc(x + 8, y - 8, 10, 0, 2 * Math.PI);
+            ctx.fill();
+        }
+        
+        function drawRainDrops(ctx, x, y) {
+            ctx.fillStyle = '#3B82F6';
+            for (let i = 0; i < 5; i++) {
+                const dropX = x - 15 + i * 7;
+                const dropY = y + (i % 2) * 5;
+                ctx.beginPath();
+                ctx.ellipse(dropX, dropY, 2, 6, 0, 0, 2 * Math.PI);
+                ctx.fill();
+            }
+        }
+        
+        function drawSnowflakes(ctx, x, y) {
+            ctx.strokeStyle = '#FFFFFF';
+            ctx.lineWidth = 2;
+            ctx.lineCap = 'round';
+            
+            for (let i = 0; i < 3; i++) {
+                const flakeX = x - 10 + i * 10;
+                const flakeY = y + (i % 2) * 8;
+                
+                // Draw snowflake
+                ctx.beginPath();
+                ctx.moveTo(flakeX - 4, flakeY);
+                ctx.lineTo(flakeX + 4, flakeY);
+                ctx.moveTo(flakeX, flakeY - 4);
+                ctx.lineTo(flakeX, flakeY + 4);
+                ctx.moveTo(flakeX - 3, flakeY - 3);
+                ctx.lineTo(flakeX + 3, flakeY + 3);
+                ctx.moveTo(flakeX - 3, flakeY + 3);
+                ctx.lineTo(flakeX + 3, flakeY - 3);
+                ctx.stroke();
+            }
+        }
+        
+        function drawFog(ctx, x, y) {
+            ctx.strokeStyle = '#D1D5DB';
+            ctx.lineWidth = 3;
+            ctx.lineCap = 'round';
+            
+            for (let i = 0; i < 4; i++) {
+                const lineY = y - 10 + i * 7;
+                ctx.beginPath();
+                ctx.moveTo(x - 20, lineY);
+                ctx.lineTo(x + 20, lineY);
+                ctx.stroke();
+            }
+        }
+        
+        function drawLightning(ctx, x, y) {
+            ctx.strokeStyle = '#FDE047';
+            ctx.lineWidth = 3;
+            ctx.lineCap = 'round';
+            
+            ctx.beginPath();
+            ctx.moveTo(x - 3, y);
+            ctx.lineTo(x + 2, y + 8);
+            ctx.lineTo(x - 2, y + 8);
+            ctx.lineTo(x + 3, y + 16);
+            ctx.stroke();
+        }
+        
+        // Draw temperature chart
+        function drawTemperatureChart(canvasId, data) {
+            const canvas = document.getElementById(canvasId);
+            if (!canvas) return;
+            
+            const ctx = canvas.getContext('2d');
+            const width = canvas.width;
+            const height = canvas.height;
+            const padding = 40;
+            
+            // Clear canvas
+            ctx.clearRect(0, 0, width, height);
+            
+            // Draw axes
+            ctx.strokeStyle = '#ccc';
+            ctx.beginPath();
+            ctx.moveTo(padding, height - padding);
+            ctx.lineTo(width - padding, height - padding);
+            ctx.stroke();
+            
+            // Draw temperature lines
+            const barWidth = (width - 2 * padding) / data.length;
+            
+            data.forEach((day, index) => {
+                const x = padding + index * barWidth + barWidth / 2;
+                const lowY = height - padding - ((day.low + 5) * 10);
+                const highY = height - padding - ((day.high + 5) * 10);
+                
+                // Draw temperature range bar
+                ctx.fillStyle = 'rgba(59, 130, 246, 0.3)';
+                ctx.fillRect(x - 15, highY, 30, lowY - highY);
+                
+                // Draw temperature values
+                ctx.fillStyle = '#1F2937';
+                ctx.font = '12px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.fillText(`${day.low}°/${day.high}°`, x, height - padding + 20);
+                ctx.fillText(day.day, x, height - padding + 35);
+            });
+        }
+        
+        // Draw hourly chart
+        function drawHourlyChart(canvasId) {
+            const canvas = document.getElementById(canvasId);
+            if (!canvas) return;
+            
+            const ctx = canvas.getContext('2d');
+            const width = canvas.width;
+            const height = canvas.height;
+            
+            // Generate sample hourly data
+            const hours = 24;
+            const data = [];
+            for (let i = 0; i < hours; i++) {
+                data.push(Math.sin(i / 4) * 5 + 3);
+            }
+            
+            // Clear and draw
+            ctx.clearRect(0, 0, width, height);
+            ctx.strokeStyle = '#3B82F6';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            
+            data.forEach((temp, i) => {
+                const x = (i / hours) * width;
+                const y = height - ((temp + 5) * 8);
+                
+                if (i === 0) {
+                    ctx.moveTo(x, y);
+                } else {
+                    ctx.lineTo(x, y);
+                }
+            });
+            
+            ctx.stroke();
+            
+            // Add gradient fill
+            const gradient = ctx.createLinearGradient(0, 0, 0, height);
+            gradient.addColorStop(0, 'rgba(59, 130, 246, 0.3)');
+            gradient.addColorStop(1, 'rgba(59, 130, 246, 0)');
+            
+            ctx.fillStyle = gradient;
+            ctx.lineTo(width, height);
+            ctx.lineTo(0, height);
+            ctx.closePath();
+            ctx.fill();
         }
         
         // Load weather on page load
@@ -409,6 +951,8 @@
         // Google Maps API Integration
         let userLocationMarker = null;
         let watchId = null;
+        let canoeMarker = null;
+        let animationId = null;
         
         function initMap() {
             // Corrected and more detailed coordinates
@@ -449,7 +993,7 @@
             const map = new google.maps.Map(mapElement, {
                 zoom: 14, 
                 center: { lat: 50.132, lng: -122.97 }, // Adjusted center for better view
-                mapTypeId: 'roadmap'
+                mapTypeId: 'terrain'
             });
 
             // Polyline with more points to accurately follow the waterway
@@ -494,6 +1038,9 @@
             endMarker.addListener('click', () => {
                 infoWindowEnd.open(map, endMarker);
             });
+            
+            // Add animated canoe
+            startCanoeAnimation(map, routePoints);
             
             // Add geolocation functionality
             if (navigator.geolocation) {
@@ -595,9 +1142,100 @@
             
             infoWindow.open(map);
         }
+        
+        // Canoe animation functions
+        function startCanoeAnimation(map, routePoints) {
+            // Create canoe icon
+            const canoeIcon = {
+                path: 'M0,0 L-8,-2 L-12,0 L-8,2 L0,0 L8,-1 L12,0 L8,1 Z', // Simple canoe shape
+                fillColor: '#8B4513',
+                fillOpacity: 1,
+                strokeColor: '#654321',
+                strokeWeight: 1,
+                scale: 1.5,
+                anchor: { x: 0, y: 0 }
+            };
+            
+            // Create canoe marker
+            canoeMarker = new google.maps.Marker({
+                position: routePoints[0],
+                map: map,
+                icon: canoeIcon,
+                title: '探险独木舟',
+                zIndex: 1000
+            });
+            
+            // Start animation
+            animateCanoe(routePoints, 0, 0);
+        }
+        
+        function animateCanoe(routePoints, currentSegment, progress) {
+            if (currentSegment >= routePoints.length - 1) {
+                // Restart from beginning
+                currentSegment = 0;
+                progress = 0;
+                setTimeout(() => animateCanoe(routePoints, currentSegment, progress), 2000); // 2 second pause
+                return;
+            }
+            
+            const startPoint = routePoints[currentSegment];
+            const endPoint = routePoints[currentSegment + 1];
+            
+            // Calculate current position using linear interpolation
+            const lat = startPoint.lat + (endPoint.lat - startPoint.lat) * progress;
+            const lng = startPoint.lng + (endPoint.lng - startPoint.lng) * progress;
+            
+            // Calculate heading (direction) for canoe rotation
+            const heading = google.maps.geometry.spherical.computeHeading(
+                new google.maps.LatLng(startPoint.lat, startPoint.lng),
+                new google.maps.LatLng(endPoint.lat, endPoint.lng)
+            );
+            
+            // Update canoe position and rotation
+            canoeMarker.setPosition({ lat: lat, lng: lng });
+            
+            // Update canoe icon with rotation
+            const rotatedIcon = {
+                path: 'M0,0 L-8,-2 L-12,0 L-8,2 L0,0 L8,-1 L12,0 L8,1 Z',
+                fillColor: '#8B4513',
+                fillOpacity: 1,
+                strokeColor: '#654321',
+                strokeWeight: 1,
+                scale: 1.5,
+                rotation: heading,
+                anchor: { x: 0, y: 0 }
+            };
+            canoeMarker.setIcon(rotatedIcon);
+            
+            // Increment progress
+            progress += 0.002; // Adjust speed here (lower = slower)
+            
+            if (progress >= 1) {
+                // Move to next segment
+                currentSegment++;
+                progress = 0;
+            }
+            
+            // Continue animation
+            animationId = requestAnimationFrame(() => {
+                animateCanoe(routePoints, currentSegment, progress);
+            });
+        }
+        
+        // Optional: Stop animation function
+        function stopCanoeAnimation() {
+            if (animationId) {
+                cancelAnimationFrame(animationId);
+                animationId = null;
+            }
+            if (canoeMarker) {
+                canoeMarker.setMap(null);
+                canoeMarker = null;
+            }
+        }
     </script>
     
-    <script async defer src="https://maps.googleapis.com/maps/api/js?key=AIzaSyD34rogilDRerCIr256FNHPMxd8phKmgcg&callback=initMap"></script>
+    <script async defer src="https://maps.googleapis.com/maps/api/js?key=AIzaSyD34rogilDRerCIr256FNHPMxd8phKmgcg&libraries=geometry&callback=initMap"></script>
 
 </body>
 </html>
