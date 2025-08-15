@@ -195,7 +195,7 @@
     <!-- Footer -->
     <footer class="bg-gray-800 text-white mt-16">
         <div class="container mx-auto p-8 text-center">
-            <p>&copy; 2024 金梦河探索指南. 版权所有.</p>
+            <p>&copy; 2025 金梦河探索指南. 版权所有.</p>
             <p class="text-sm text-gray-400 mt-2">本页面根据 Happiest Outdoors 的内容进行重新设计和创作，并根据用户需求进行个性化定制。</p>
         </div>
     </footer>
@@ -212,6 +212,9 @@
         });
 
         // Google Maps API Integration
+        let userLocationMarker = null;
+        let watchId = null;
+        
         function initMap() {
             // Corrected and more detailed coordinates
             const startPoint = { lat: 50.1199914, lng: -122.9833144 }; // PRECISE Rainbow Park launch point
@@ -219,17 +222,29 @@
             
             const routePoints = [
                 { lat: 50.1199914, lng: -122.9833144 }, // Start at Rainbow Park beach
-                { lat: 50.122, lng: -122.980 },         // Head into Alta Lake
-                { lat: 50.125, lng: -122.975 },         // Mid-lake waypoint heading north
-                { lat: 50.129, lng: -122.970 },         // Northeast part of Alta Lake
-                { lat: 50.133, lng: -122.968 },         // Approaching river mouth
-                { lat: 50.1365, lng: -122.9645 },       // Enter River of Golden Dreams
-                { lat: 50.1385, lng: -122.9615 },       // First river bend
-                { lat: 50.1395, lng: -122.9595 },       // Following river curve east
-                { lat: 50.1405, lng: -122.9575 },       // River curves north
-                { lat: 50.1415, lng: -122.9565 },       // Continue along river
-                { lat: 50.1425, lng: -122.9575 },       // River bends west slightly
-                { lat: 50.1435, lng: -122.9585 },       // Approaching Green Lake
+                { lat: 50.1223643, lng: -122.9775402 },
+                { lat: 50.1243752, lng: -122.9755849 },
+                { lat: 50.1248004, lng: -122.9755581 },
+                { lat: 50.1253872, lng: -122.9743990 },
+                { lat: 50.1258222, lng: -122.9745838 },
+                { lat: 50.1260922, lng: -122.9753184 },
+                { lat: 50.1285812, lng: -122.9702828 },
+                { lat: 50.1307483, lng: -122.9672137 },
+                { lat: 50.1312104, lng: -122.9678645 },
+                { lat: 50.1317174, lng: -122.9670494 },
+                { lat: 50.1333323, lng: -122.9664788 },
+                { lat: 50.1340630, lng: -122.9668634 },
+                { lat: 50.1344125, lng: -122.9666096 },
+                { lat: 50.1350009, lng: -122.9674907 },
+                { lat: 50.1365131, lng: -122.9682856 },
+                { lat: 50.1391479, lng: -122.9633728 },
+                { lat: 50.1395713, lng: -122.9634868 },
+                { lat: 50.1397599, lng: -122.9658213 },
+                { lat: 50.1406996, lng: -122.9662143 },
+                { lat: 50.1423374, lng: -122.9646569 },
+                { lat: 50.1424792, lng: -122.9630680 },
+                { lat: 50.1431750, lng: -122.9625604 },
+                { lat: 50.1437454, lng: -122.9592516 },
                 { lat: 50.1441348, lng: -122.9599503 }  // End at Meadow Park Sports Centre
             ];
 
@@ -284,6 +299,106 @@
             endMarker.addListener('click', () => {
                 infoWindowEnd.open(map, endMarker);
             });
+            
+            // Add geolocation functionality
+            if (navigator.geolocation) {
+                // Create a custom button for location tracking
+                const locationButton = document.createElement('button');
+                locationButton.textContent = '📍 显示我的位置';
+                locationButton.classList.add('bg-white', 'hover:bg-gray-100', 'text-gray-800', 'font-semibold', 'py-2', 'px-4', 'border', 'border-gray-400', 'rounded', 'shadow', 'm-2');
+                
+                map.controls[google.maps.ControlPosition.TOP_RIGHT].push(locationButton);
+                
+                locationButton.addEventListener('click', () => {
+                    // Request location permission and start tracking
+                    if (watchId === null) {
+                        watchId = navigator.geolocation.watchPosition(
+                            (position) => {
+                                const userPos = {
+                                    lat: position.coords.latitude,
+                                    lng: position.coords.longitude
+                                };
+                                
+                                // Update or create user location marker
+                                if (userLocationMarker) {
+                                    userLocationMarker.setPosition(userPos);
+                                } else {
+                                    userLocationMarker = new google.maps.Marker({
+                                        position: userPos,
+                                        map: map,
+                                        title: '您的位置',
+                                        icon: {
+                                            path: google.maps.SymbolPath.CIRCLE,
+                                            scale: 10,
+                                            fillColor: '#4285F4',
+                                            fillOpacity: 1,
+                                            strokeColor: '#ffffff',
+                                            strokeWeight: 2
+                                        },
+                                        zIndex: 999
+                                    });
+                                    
+                                    // Add pulsing animation effect
+                                    const pulsingCircle = new google.maps.Circle({
+                                        strokeColor: '#4285F4',
+                                        strokeOpacity: 0.8,
+                                        strokeWeight: 2,
+                                        fillColor: '#4285F4',
+                                        fillOpacity: 0.35,
+                                        map: map,
+                                        center: userPos,
+                                        radius: 20
+                                    });
+                                    
+                                    // Update pulsing circle position when marker moves
+                                    google.maps.event.addListener(userLocationMarker, 'position_changed', function() {
+                                        pulsingCircle.setCenter(userLocationMarker.getPosition());
+                                    });
+                                }
+                                
+                                // Center map on user location first time
+                                if (locationButton.textContent === '📍 显示我的位置') {
+                                    map.setCenter(userPos);
+                                    map.setZoom(15);
+                                    locationButton.textContent = '📍 停止追踪';
+                                }
+                            },
+                            (error) => {
+                                handleLocationError(true, map.getCenter(), error);
+                            },
+                            {
+                                enableHighAccuracy: true,
+                                timeout: 5000,
+                                maximumAge: 0
+                            }
+                        );
+                    } else {
+                        // Stop tracking
+                        navigator.geolocation.clearWatch(watchId);
+                        watchId = null;
+                        locationButton.textContent = '📍 显示我的位置';
+                        
+                        // Optionally remove the marker
+                        if (userLocationMarker) {
+                            userLocationMarker.setMap(null);
+                            userLocationMarker = null;
+                        }
+                    }
+                });
+            }
+        }
+        
+        function handleLocationError(browserHasGeolocation, pos, error) {
+            const errorMessage = browserHasGeolocation
+                ? `位置服务错误: ${error.message}`
+                : '您的浏览器不支持地理位置服务。';
+            
+            const infoWindow = new google.maps.InfoWindow({
+                content: errorMessage,
+                position: pos
+            });
+            
+            infoWindow.open(map);
         }
     </script>
     
