@@ -979,8 +979,6 @@
         // Google Maps API Integration
         let userLocationMarker = null;
         let watchId = null;
-        let canoeMarker = null;
-        let animationId = null;
         
         function initMap() {
             // Corrected and more detailed coordinates
@@ -1067,8 +1065,8 @@
                 infoWindowEnd.open(map, endMarker);
             });
             
-            // Add animated canoe
-            startCanoeAnimation(map, routePoints);
+            // Add flow direction arrows
+            addFlowArrows(map, routePoints);
             
             // Add geolocation functionality
             if (navigator.geolocation) {
@@ -1171,94 +1169,35 @@
             infoWindow.open(map);
         }
         
-        // Canoe animation functions
-        function startCanoeAnimation(map, routePoints) {
-            // Create canoe icon
-            const canoeIcon = {
-                path: 'M0,0 L-8,-2 L-12,0 L-8,2 L0,0 L8,-1 L12,0 L8,1 Z', // Simple canoe shape
-                fillColor: '#8B4513',
-                fillOpacity: 1,
-                strokeColor: '#654321',
-                strokeWeight: 1,
-                scale: 1.5,
-                anchor: { x: 0, y: 0 }
+        // Add subtle flow direction arrows
+        function addFlowArrows(map, routePoints) {
+            const arrowSymbol = {
+                path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW,
+                strokeColor: '#4285F4',
+                strokeWeight: 2,
+                strokeOpacity: 0.8,
+                scale: 4
             };
             
-            // Create canoe marker
-            canoeMarker = new google.maps.Marker({
-                position: routePoints[0],
-                map: map,
-                icon: canoeIcon,
-                title: '探险独木舟',
-                zIndex: 1000
-            });
-            
-            // Start animation
-            animateCanoe(routePoints, 0, 0);
-        }
-        
-        function animateCanoe(routePoints, currentSegment, progress) {
-            if (currentSegment >= routePoints.length - 1) {
-                // Restart from beginning
-                currentSegment = 0;
-                progress = 0;
-                setTimeout(() => animateCanoe(routePoints, currentSegment, progress), 2000); // 2 second pause
-                return;
-            }
-            
-            const startPoint = routePoints[currentSegment];
-            const endPoint = routePoints[currentSegment + 1];
-            
-            // Calculate current position using linear interpolation
-            const lat = startPoint.lat + (endPoint.lat - startPoint.lat) * progress;
-            const lng = startPoint.lng + (endPoint.lng - startPoint.lng) * progress;
-            
-            // Calculate heading (direction) for canoe rotation
-            const heading = google.maps.geometry.spherical.computeHeading(
-                new google.maps.LatLng(startPoint.lat, startPoint.lng),
-                new google.maps.LatLng(endPoint.lat, endPoint.lng)
-            );
-            
-            // Update canoe position and rotation
-            canoeMarker.setPosition({ lat: lat, lng: lng });
-            
-            // Update canoe icon with rotation
-            const rotatedIcon = {
-                path: 'M0,0 L-8,-2 L-12,0 L-8,2 L0,0 L8,-1 L12,0 L8,1 Z',
-                fillColor: '#8B4513',
-                fillOpacity: 1,
-                strokeColor: '#654321',
-                strokeWeight: 1,
-                scale: 1.5,
-                rotation: heading,
-                anchor: { x: 0, y: 0 }
-            };
-            canoeMarker.setIcon(rotatedIcon);
-            
-            // Increment progress
-            progress += 0.002; // Adjust speed here (lower = slower)
-            
-            if (progress >= 1) {
-                // Move to next segment
-                currentSegment++;
-                progress = 0;
-            }
-            
-            // Continue animation
-            animationId = requestAnimationFrame(() => {
-                animateCanoe(routePoints, currentSegment, progress);
-            });
-        }
-        
-        // Optional: Stop animation function
-        function stopCanoeAnimation() {
-            if (animationId) {
-                cancelAnimationFrame(animationId);
-                animationId = null;
-            }
-            if (canoeMarker) {
-                canoeMarker.setMap(null);
-                canoeMarker = null;
+            // Add arrows at regular intervals along the route
+            for (let i = 0; i < routePoints.length - 1; i += 3) { // Every 3rd point to avoid clutter
+                const startPoint = routePoints[i];
+                const endPoint = routePoints[i + 1];
+                
+                // Calculate midpoint for arrow placement
+                const midLat = (startPoint.lat + endPoint.lat) / 2;
+                const midLng = (startPoint.lng + endPoint.lng) / 2;
+                
+                // Create arrow polyline
+                const arrowLine = new google.maps.Polyline({
+                    path: [startPoint, endPoint],
+                    strokeOpacity: 0, // Invisible line
+                    icons: [{
+                        icon: arrowSymbol,
+                        offset: '50%' // Place arrow at midpoint
+                    }],
+                    map: map
+                });
             }
         }
     </script>
