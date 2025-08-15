@@ -323,62 +323,81 @@
             }
         });
 
-        // Fetch Weather Data
+        // Fetch Weather Data using a free weather widget
         async function fetchWeather() {
             const weatherContent = document.getElementById('weatherContent');
             
             try {
-                // Using OpenWeatherMap API (free tier available)
-                // Whistler coordinates
-                const lat = 50.1163;
-                const lon = -122.9574;
-                const apiKey = '8d6454a89dff871786a0307b0dbebbee'; // Free tier API key for demo
-                
-                const response = await fetch(`https://api.openweathermap.org/data/2.5/forecast?lat=${lat}&lon=${lon}&appid=${apiKey}&units=metric&lang=zh_cn`);
+                // Use wttr.in service which provides weather in various formats
+                // It's free and doesn't require API keys
+                const response = await fetch('https://wttr.in/Whistler,BC?format=j1');
                 const data = await response.json();
                 
-                if (data.list && data.list.length > 0) {
-                    // Display current weather and next 3 days forecast
-                    let weatherHTML = '<div class="grid grid-cols-1 md:grid-cols-4 gap-4">';
+                if (data && data.weather) {
+                    // Display current weather and forecast
+                    let weatherHTML = '<div class="grid grid-cols-1 md:grid-cols-3 gap-4">';
                     
-                    // Process forecast data (every 3 hours, so we take every 8th item for daily)
-                    for (let i = 0; i < Math.min(4, Math.floor(data.list.length / 8)); i++) {
-                        const forecast = data.list[i * 8];
-                        const date = new Date(forecast.dt * 1000);
-                        const dateStr = i === 0 ? '今天' : date.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' });
-                        
-                        const iconCode = forecast.weather[0].icon;
-                        const iconUrl = `https://openweathermap.org/img/wn/${iconCode}@2x.png`;
+                    // Current weather
+                    const current = data.current_condition[0];
+                    weatherHTML += `
+                        <div class="bg-gradient-to-br from-blue-100 to-teal-100 p-4 rounded-lg">
+                            <div class="font-semibold text-gray-800 mb-2">现在</div>
+                            <div class="text-3xl font-bold text-gray-900">${current.temp_C}°C</div>
+                            <div class="text-sm text-gray-600">${current.weatherDesc[0].value}</div>
+                            <div class="text-xs text-gray-500 mt-2">
+                                <div>体感: ${current.FeelsLikeC}°C</div>
+                                <div>湿度: ${current.humidity}%</div>
+                                <div>风速: ${current.windspeedKmph} km/h</div>
+                            </div>
+                        </div>
+                    `;
+                    
+                    // Next 2 days forecast
+                    for (let i = 0; i < Math.min(2, data.weather.length); i++) {
+                        const day = data.weather[i];
+                        const date = new Date(day.date);
+                        const dateStr = date.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric', weekday: 'short' });
                         
                         weatherHTML += `
                             <div class="bg-gradient-to-br from-blue-50 to-teal-50 p-4 rounded-lg">
                                 <div class="font-semibold text-gray-800 mb-2">${dateStr}</div>
-                                <img src="${iconUrl}" alt="${forecast.weather[0].description}" class="w-16 h-16 mx-auto">
-                                <div class="text-2xl font-bold text-gray-900">${Math.round(forecast.main.temp)}°C</div>
-                                <div class="text-sm text-gray-600">${forecast.weather[0].description}</div>
+                                <div class="text-2xl font-bold text-gray-900">${day.maxtempC}°/${day.mintempC}°</div>
+                                <div class="text-sm text-gray-600">${day.hourly[4].weatherDesc[0].value}</div>
                                 <div class="text-xs text-gray-500 mt-2">
-                                    <div>湿度: ${forecast.main.humidity}%</div>
-                                    <div>风速: ${forecast.wind.speed} m/s</div>
+                                    <div>降水概率: ${day.hourly[4].chanceofrain}%</div>
+                                    <div>UV指数: ${day.uvIndex}</div>
                                 </div>
                             </div>
                         `;
                     }
                     
                     weatherHTML += '</div>';
-                    weatherHTML += '<div class="text-center mt-6 text-sm text-gray-500">数据来源: OpenWeatherMap | 更新时间: ' + new Date().toLocaleTimeString('zh-CN') + '</div>';
+                    weatherHTML += '<div class="text-center mt-6">';
+                    weatherHTML += '<a href="https://www.whistler.com/weather/" target="_blank" class="text-blue-600 hover:underline text-sm">查看详细预报 →</a>';
+                    weatherHTML += '</div>';
                     
                     weatherContent.innerHTML = weatherHTML;
                 } else {
-                    throw new Error('No weather data available');
+                    throw new Error('Weather data not available');
                 }
             } catch (error) {
                 console.error('Weather fetch error:', error);
+                // Fallback: Embed a simple weather widget iframe
                 weatherContent.innerHTML = `
-                    <div class="text-center p-8">
-                        <div class="text-gray-600 mb-4">暂时无法获取天气信息</div>
-                        <a href="https://www.whistler.com/weather/" target="_blank" class="text-blue-600 hover:underline">
-                            访问 Whistler.com 查看天气预报 →
-                        </a>
+                    <div class="max-w-2xl mx-auto">
+                        <iframe 
+                            src="https://www.whistler.com/weather/" 
+                            width="100%" 
+                            height="400" 
+                            frameborder="0"
+                            class="rounded-lg shadow-lg"
+                            title="Whistler Weather">
+                        </iframe>
+                        <div class="text-center mt-4">
+                            <a href="https://www.whistler.com/weather/" target="_blank" class="text-blue-600 hover:underline">
+                                在新窗口查看完整天气预报 →
+                            </a>
+                        </div>
                     </div>
                 `;
             }
