@@ -39,6 +39,66 @@
             border-radius: 1rem;
             background-color: #e5e7eb; /* Light gray background for the map area */
         }
+        
+        /* Modal styles for image lightbox */
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 9999;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            overflow: auto;
+            background-color: rgba(0,0,0,0.9);
+        }
+        
+        .modal-content {
+            margin: auto;
+            display: block;
+            max-width: 90%;
+            max-height: 90%;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+        }
+        
+        .modal-content {
+            animation-name: zoom;
+            animation-duration: 0.3s;
+        }
+        
+        @keyframes zoom {
+            from {transform: translate(-50%, -50%) scale(0)}
+            to {transform: translate(-50%, -50%) scale(1)}
+        }
+        
+        .close {
+            position: absolute;
+            top: 20px;
+            right: 35px;
+            color: #f1f1f1;
+            font-size: 40px;
+            font-weight: bold;
+            transition: 0.3s;
+            cursor: pointer;
+        }
+        
+        .close:hover,
+        .close:focus {
+            color: #bbb;
+            text-decoration: none;
+        }
+        
+        .clickable-image {
+            cursor: zoom-in;
+            transition: transform 0.2s;
+        }
+        
+        .clickable-image:hover {
+            transform: scale(1.02);
+        }
     </style>
 </head>
 <body class="bg-gray-50 text-gray-800">
@@ -105,7 +165,10 @@
                     </ol>
                 </div>
                 <div class="w-full md:w-1/2">
-                    <img src="https://happiestoutdoors.ca/wp-content/uploads/2024/02/rogd_safety_map-1024x576.jpg.webp" alt="[金梦河路线安全地图]" class="rounded-xl shadow-md w-full h-auto object-cover">
+                    <figure>
+                        <img src="https://happiestoutdoors.ca/wp-content/uploads/2024/02/rogd_safety_map-1024x576.jpg.webp" alt="金梦河路线安全地图" class="rounded-xl shadow-md w-full h-auto object-cover clickable-image" id="safetyMap" title="点击查看大图">
+                        <figcaption class="text-center text-sm text-gray-600 mt-2 italic">金梦河划桨路线安全地图 - 点击放大查看详情</figcaption>
+                    </figure>
                 </div>
             </div>
         </section>
@@ -192,6 +255,12 @@
 
     </main>
 
+    <!-- Image Modal -->
+    <div id="imageModal" class="modal">
+        <span class="close">&times;</span>
+        <img class="modal-content" id="modalImage">
+    </div>
+
     <!-- Footer -->
     <footer class="bg-gray-800 text-white mt-16">
         <div class="container mx-auto p-8 text-center">
@@ -209,6 +278,37 @@
                 const checkmark = item.querySelector('span');
                 checkmark.style.opacity = item.classList.contains('checked') ? '1' : '0';
             });
+        });
+        
+        // Image Modal Logic
+        const modal = document.getElementById('imageModal');
+        const modalImg = document.getElementById('modalImage');
+        const safetyMapImg = document.getElementById('safetyMap');
+        const closeBtn = document.getElementsByClassName('close')[0];
+        
+        // Open modal when safety map is clicked
+        safetyMapImg.onclick = function() {
+            modal.style.display = 'block';
+            modalImg.src = this.src;
+        }
+        
+        // Close modal when X is clicked
+        closeBtn.onclick = function() {
+            modal.style.display = 'none';
+        }
+        
+        // Close modal when clicking outside the image
+        modal.onclick = function(event) {
+            if (event.target === modal) {
+                modal.style.display = 'none';
+            }
+        }
+        
+        // Close modal with Escape key
+        document.addEventListener('keydown', function(event) {
+            if (event.key === 'Escape' && modal.style.display === 'block') {
+                modal.style.display = 'none';
+            }
         });
 
         // Google Maps API Integration
